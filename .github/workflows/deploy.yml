@@ -66,7 +66,7 @@ jobs:
           --name streamlitregistry12345 \
           --image ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest \
           --dns-name-label streamlit-demo-unique123 \
-          --ports 8501 \
+          --ports 80 \
           --registry-login-server ${{ secrets.ACR_LOGIN_SERVER }} \
           --registry-username ${{ secrets.ACR_USERNAME }} \
           --registry-password ${{ secrets.ACR_PASSWORD }} \
