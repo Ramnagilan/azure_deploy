@@ -1,0 +1,96 @@
+name: Deploy Streamlit to Azure Container Instances (ACI)
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy-streamlit:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 3️⃣ Build Docker Image
+      - name: Build Docker Image (Streamlit)
+        run: |
+          docker build -t streamlit-app:latest .
+
+      # 4️⃣ Tag Docker Image
+      - name: Tag Docker Image (Streamlit)
+        run: |
+          docker tag streamlit-app:latest ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest
+
+      # 5️⃣ Login to Azure Container Registry
+      - name: Login to Azure Container Registry
+        run: |
+          docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+            -u ${{ secrets.ACR_USERNAME }} \
+            -p ${{ secrets.ACR_PASSWORD }}
+
+      # 6️⃣ Push Docker Image
+      - name: Push Docker Image (Streamlit)
+        run: |
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest
+
+      # 7️⃣ Deploy to Azure Container Instances
+      - name: Deploy to ACI (Streamlit)
+        run: |
+          az container create \
+            --resource-group streamlit-app \
+            --name streamlitregistry12345 \
+            --image ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest \
+            --dns-name-label streamlit-demo-unique123 \
+            --ports 8501 \
+            --os-type Linux \
+            --registry-login-server ${{ secrets.ACR_LOGIN_SERVER }} \
+            --registry-username ${{ secrets.ACR_USERNAME }} \
+            --registry-password ${{ secrets.ACR_PASSWORD }} \
+            --cpu 1 \
+            --memory 2 \
+            --restart-policy Always
+
+      # 8️⃣ Check Container Status
+      - name: Check Docker Container Status (Streamlit)
+        run: |
+          echo "Waiting for container to be in 'Running' state..."
+          for i in {1..15}; do
+            status=$(az container show \
+              --name streamlitregistry12345 \
+              --resource-group streamlit-app \
+              --query "instanceView.state" \
+              --output tsv)
+            echo "Current status: $status"
+
+            if [ "$status" == "Running" ]; then
+              echo "Container is running successfully."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "Container failed to reach 'Running' state. Fetching logs..."
+          az container logs --name streamlitregistry12345 --resource-group streamlit-app
+          exit 1
+
+      # 9️⃣ Show Deployment Status
+      - name: Show ACI Deployment Status (Streamlit)
+        run: |
+          az container show \
+            --name streamlitregistry12345 \
+            --resource-group streamlit-app \
+            --query "{IP:ipAddress.fqdn, Status:provisioningState}" \
+            --output table
