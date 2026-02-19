@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose port 80 instead of 8501
-EXPOSE 8510
+EXPOSE 8501
 
 # Run Streamlit on port 80 and bind to 0.0.0.0
 CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
