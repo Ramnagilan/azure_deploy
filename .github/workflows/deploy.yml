@@ -6,6 +6,7 @@ on:
       - main
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -22,30 +23,42 @@ jobs:
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+          auth-type: SERVICE_PRINCIPAL
 
-      # 3️⃣ Build Docker Image
+      # 3️⃣ Set Azure Subscription (IMPORTANT)
+      - name: Set Azure Subscription
+        run: |
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # 4️⃣ Build Docker Image
       - name: Build Docker Image (Streamlit)
         run: |
           docker build -t streamlit-app:latest .
 
-      # 4️⃣ Tag Docker Image
+      # 5️⃣ Tag Docker Image
       - name: Tag Docker Image (Streamlit)
         run: |
           docker tag streamlit-app:latest ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest
 
-      # 5️⃣ Login to Azure Container Registry
+      # 6️⃣ Login to Azure Container Registry (Better Method)
       - name: Login to Azure Container Registry
         run: |
-          docker login ${{ secrets.ACR_LOGIN_SERVER }} \
-            -u ${{ secrets.ACR_USERNAME }} \
-            -p ${{ secrets.ACR_PASSWORD }}
+          echo ${{ secrets.ACR_PASSWORD }} | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
-      # 6️⃣ Push Docker Image
+      # 7️⃣ Push Docker Image
       - name: Push Docker Image (Streamlit)
         run: |
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest
 
-      # 7️⃣ Deploy to Azure Container Instances
+      # 8️⃣ Delete Existing Container (VERY IMPORTANT)
+      - name: Delete Existing Container (if exists)
+        run: |
+          az container delete \
+            --name streamlitregistry12345 \
+            --resource-group streamlit-app \
+            --yes || true
+
+      # 9️⃣ Deploy to ACI
       - name: Deploy to ACI (Streamlit)
         run: |
           az container create \
@@ -62,35 +75,11 @@ jobs:
             --memory 2 \
             --restart-policy Always
 
-      # 8️⃣ Check Container Status
-      - name: Check Docker Container Status (Streamlit)
-        run: |
-          echo "Waiting for container to be in 'Running' state..."
-          for i in {1..15}; do
-            status=$(az container show \
-              --name streamlitregistry12345 \
-              --resource-group streamlit-app \
-              --query "instanceView.state" \
-              --output tsv)
-            echo "Current status: $status"
-
-            if [ "$status" == "Running" ]; then
-              echo "Container is running successfully."
-              exit 0
-            fi
-
-            sleep 5
-          done
-
-          echo "Container failed to reach 'Running' state. Fetching logs..."
-          az container logs --name streamlitregistry12345 --resource-group streamlit-app
-          exit 1
-
-      # 9️⃣ Show Deployment Status
-      - name: Show ACI Deployment Status (Streamlit)
+      # 🔟 Show Deployment Status
+      - name: Show ACI Deployment Status
         run: |
           az container show \
             --name streamlitregistry12345 \
             --resource-group streamlit-app \
-            --query "{IP:ipAddress.fqdn, Status:provisioningState}" \
+            --query "{FQDN:ipAddress.fqdn, State:instanceView.state}" \
             --output table
