@@ -1,4 +1,4 @@
-name: Deploy Streamlit to Azure Container Instances (ACI)
+name: Deploy Streamlit to Azure App Service
 
 on:
   push:
@@ -10,33 +10,33 @@ permissions:
   contents: read
 
 jobs:
-  build-and-deploy-streamlit:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout repository
+
+    # 1️⃣ Checkout repo
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # 2️⃣ Login to Azure using Service Principal
+    # 2️⃣ Azure Login
     - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
-        auth-type: SERVICE_PRINCIPAL
 
-    # 3️⃣ Set Azure subscription
+    # 3️⃣ Set subscription
     - name: Set Azure Subscription
       run: |
         az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     # 4️⃣ Build Docker Image
-    - name: Build Docker Image (Streamlit)
+    - name: Build Docker Image
       run: |
         docker build -t streamlit-app:latest .
 
     # 5️⃣ Tag Image for ACR
-    - name: Tag Docker Image (Streamlit)
+    - name: Tag Docker Image
       run: |
         docker tag streamlit-app:latest ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest
 
@@ -45,33 +45,25 @@ jobs:
       run: |
         echo ${{ secrets.ACR_PASSWORD }} | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
-    # 7️⃣ Push Image
-    - name: Push Docker Image (Streamlit)
+    # 7️⃣ Push Image to ACR
+    - name: Push Docker Image
       run: |
         docker push ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest
 
-    # 8️⃣ Delete existing container if present
-    - name: Delete existing ACI container
+    # 8️⃣ Configure App Service to use new image
+    - name: Deploy to Azure App Service
       run: |
-        az container delete \
-          --resource-group streamlit-app \
-          --name streamlitregistry12345 \
-          --yes || true
+        az webapp config container set \
+          --name ${{ secrets.APP_SERVICE_NAME }} \
+          --resource-group ${{ secrets.RESOURCE_GROUP }} \
+          --docker-custom-image-name ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest \
+          --docker-registry-server-url https://${{ secrets.ACR_LOGIN_SERVER }} \
+          --docker-registry-server-user ${{ secrets.ACR_USERNAME }} \
+          --docker-registry-server-password ${{ secrets.ACR_PASSWORD }}
 
-    # 9️⃣ Deploy to Azure Container Instance
-    - name: Deploy to Azure Container Instance
+    # 9️⃣ Restart App Service
+    - name: Restart App Service
       run: |
-        az container create \
-          --resource-group streamlit-app \
-          --name streamlitregistry12345 \
-          --image ${{ secrets.ACR_LOGIN_SERVER }}/streamlit-app:latest \
-          --dns-name-label streamlit-demo-unique123 \
-          --ports 80 \
-          --registry-login-server ${{ secrets.ACR_LOGIN_SERVER }} \
-          --registry-username ${{ secrets.ACR_USERNAME }} \
-          --registry-password ${{ secrets.ACR_PASSWORD }} \
-          --cpu 1 \
-          --memory 2 \
-          --os-type Linux \
-          --restart-policy Always
-
+        az webapp restart \
+          --name ${{ secrets.APP_SERVICE_NAME }} \
+          --resource-group ${{ secrets.RESOURCE_GROUP }}
